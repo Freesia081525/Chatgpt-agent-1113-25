@@ -1674,28 +1674,14 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 ])
 
 # TAB 1: Upload & OCR
+
 # TAB 1: Upload & OCR
 with tab1:
     st.markdown('<div class="premium-card">', unsafe_allow_html=True)
     st.subheader(f"{theme_icon} {t['upload_docs']}")
     
-    # Progress indicator
-    progress_steps = []
-    if st.session_state.docA_text or st.session_state.docA_ocr_text:
-        progress_steps.append("Doc A ✓")
-    if st.session_state.docB_text or st.session_state.docB_ocr_text:
-        progress_steps.append("Doc B ✓")
-    
-    if progress_steps:
-        st.markdown(f"""
-            <div style="text-align: center; padding: 1rem; background: linear-gradient(135deg, {ANIMAL_THEMES[st.session_state.theme]['primary']}20, {ANIMAL_THEMES[st.session_state.theme]['secondary']}20); border-radius: 15px; margin-bottom: 1rem;">
-                <strong>📊 Progress:</strong> {' → '.join(progress_steps)}
-            </div>
-        """, unsafe_allow_html=True)
-    
     colA, colB = st.columns(2)
     
-    # ========== DOC A ==========
     with colA:
         st.markdown(f"#### 📄 {t['doc_a']}")
         fileA = st.file_uploader(f"{t['doc_a']} Upload", 
@@ -1705,80 +1691,36 @@ with tab1:
             textA, metaA = load_any_file(fileA)
             st.session_state.docA_text = textA
             st.session_state.docA_meta = metaA
-            
-            # Status indicator
-            st.markdown(f"""
-                <div class="status-badge status-ready">
-                    <span class="glow-dot"></span>
-                    ✅ {t['text_extracted']}: {len(textA)} {t['char_count']}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Preview uploaded content
-            with st.expander(f"👁️ {t['preview_text']} (Doc A)", expanded=False):
-                st.text_area("Preview", value=textA[:1000] + ("..." if len(textA) > 1000 else ""), 
-                            height=200, key="preview_docA", disabled=True)
-                st.caption(f"Showing first 1000 of {len(textA)} characters")
+            st.success(f"✅ {metaA.get('preview', '')}")
             
             if metaA["type"] == "pdf" and metaA["page_images"]:
-                st.caption(f"📄 PDF Preview: {len(metaA['page_images'])} pages")
+                st.caption(f"Preview ({len(metaA['page_images'])} pages)")
                 colsA = st.columns(4)
                 for i, (idx, im) in enumerate(metaA["page_images"][:8]):
-                    colsA[i % 4].image(im, caption=f"P{idx+1}", use_column_width=True)
+                    colsA[i % 4].image(im, caption=f"Page {idx+1}", use_column_width=True)
                 
-                st.markdown("##### 🔍 OCR Settings")
-                prA = st.text_input(f"{t['page_range']} (e.g., 1-5, 7, 9-12)", value="1-5", key="prA")
-                
-                col_ocr1, col_ocr2 = st.columns(2)
-                with col_ocr1:
-                    ocr_mode_A = st.selectbox(f"{t['ocr_mode']}", ["Python OCR", "LLM OCR"], key="ocrA")
-                with col_ocr2:
-                    ocr_lang_A = st.selectbox(f"{t['ocr_lang']}", ["english", "traditional-chinese"], key="ocrlangA")
-                
+                prA = st.text_input(f"{t['page_range']} (Doc A)", value="1-5", key="prA")
+                ocr_mode_A = st.selectbox(f"{t['ocr_mode']} (Doc A)",
+                                         ["Python OCR", "LLM OCR"], key="ocrA")
+                ocr_lang_A = st.selectbox(f"{t['ocr_lang']} (Doc A)",
+                                         ["english", "traditional-chinese"], key="ocrlangA")
                 if ocr_mode_A == "LLM OCR":
-                    llm_ocr_model_A = st.selectbox("LLM Model", 
+                    llm_ocr_model_A = st.selectbox("LLM Model (Doc A)",
                                                    ["gemini-2.5-flash", "gpt-4o-mini"], key="llmocrA")
                 
-                if st.button(f"▶️ {t['start_ocr']} (Doc A)", key="btn_ocrA", use_container_width=True, type="primary"):
+                if st.button(f"▶️ {t['start_ocr']} (Doc A)", key="btn_ocrA", use_container_width=True):
                     selectedA = parse_page_range(prA, len(metaA["page_images"]))
                     st.session_state.docA_selected_pages = selectedA
-                    
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    status_text.text(f"Processing {len(selectedA)} pages...")
-                    progress_bar.progress(25)
-                    
-                    with st.spinner("🔄 Running OCR..."):
+                    with st.spinner("Processing Doc A OCR..."):
                         if ocr_mode_A == "Python OCR":
                             text = extract_text_python(metaA["raw_bytes"], selectedA, ocr_lang_A)
                         else:
                             text = extract_text_llm([metaA["page_images"][i][1] for i in selectedA],
                                                    llm_ocr_model_A, router)
-                    
-                    progress_bar.progress(100)
-                    status_text.empty()
-                    progress_bar.empty()
-                    
                     st.session_state.docA_ocr_text = text
-                    st.markdown(f"""
-                        <div class="status-badge status-ready">
-                            <span class="glow-dot"></span>
-                            ✅ {t['ocr_completed']}: {len(text)} {t['char_count']}
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.success("✅ OCR Complete!")
                     st.balloons()
-                    st.rerun()
-        
-        # Preview OCR result if available
-        if st.session_state.docA_ocr_text:
-            with st.expander(f"👁️ {t['preview_ocr']} (Doc A)", expanded=True):
-                st.text_area("OCR Result", value=st.session_state.docA_ocr_text[:1000] + 
-                            ("..." if len(st.session_state.docA_ocr_text) > 1000 else ""), 
-                            height=250, key="preview_ocrA", disabled=True)
-                st.caption(f"Showing first 1000 of {len(st.session_state.docA_ocr_text)} characters")
     
-    # ========== DOC B ==========
     with colB:
         st.markdown(f"#### 📄 {t['doc_b']}")
         fileB = st.file_uploader(f"{t['doc_b']} Upload",
@@ -1788,125 +1730,38 @@ with tab1:
             textB, metaB = load_any_file(fileB)
             st.session_state.docB_text = textB
             st.session_state.docB_meta = metaB
-            
-            # Status indicator
-            st.markdown(f"""
-                <div class="status-badge status-ready">
-                    <span class="glow-dot"></span>
-                    ✅ {t['text_extracted']}: {len(textB)} {t['char_count']}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Preview uploaded content
-            with st.expander(f"👁️ {t['preview_text']} (Doc B)", expanded=False):
-                st.text_area("Preview", value=textB[:1000] + ("..." if len(textB) > 1000 else ""), 
-                            height=200, key="preview_docB", disabled=True)
-                st.caption(f"Showing first 1000 of {len(textB)} characters")
+            st.success(f"✅ {metaB.get('preview', '')}")
             
             if metaB["type"] == "pdf" and metaB["page_images"]:
-                st.caption(f"📄 PDF Preview: {len(metaB['page_images'])} pages")
+                st.caption(f"Preview ({len(metaB['page_images'])} pages)")
                 colsB = st.columns(4)
                 for i, (idx, im) in enumerate(metaB["page_images"][:8]):
-                    colsB[i % 4].image(im, caption=f"P{idx+1}", use_column_width=True)
+                    colsB[i % 4].image(im, caption=f"Page {idx+1}", use_column_width=True)
                 
-                st.markdown("##### 🔍 OCR Settings")
-                prB = st.text_input(f"{t['page_range']} (e.g., 1-5, 7, 9-12)", value="1-5", key="prB")
-                
-                col_ocr1, col_ocr2 = st.columns(2)
-                with col_ocr1:
-                    ocr_mode_B = st.selectbox(f"{t['ocr_mode']}", ["Python OCR", "LLM OCR"], key="ocrB")
-                with col_ocr2:
-                    ocr_lang_B = st.selectbox(f"{t['ocr_lang']}", ["english", "traditional-chinese"], key="ocrlangB")
-                
+                prB = st.text_input(f"{t['page_range']} (Doc B)", value="1-5", key="prB")
+                ocr_mode_B = st.selectbox(f"{t['ocr_mode']} (Doc B)",
+                                         ["Python OCR", "LLM OCR"], key="ocrB")
+                ocr_lang_B = st.selectbox(f"{t['ocr_lang']} (Doc B)",
+                                         ["english", "traditional-chinese"], key="ocrlangB")
                 if ocr_mode_B == "LLM OCR":
-                    llm_ocr_model_B = st.selectbox("LLM Model",
+                    llm_ocr_model_B = st.selectbox("LLM Model (Doc B)",
                                                    ["gemini-2.5-flash", "gpt-4o-mini"], key="llmocrB")
                 
-                if st.button(f"▶️ {t['start_ocr']} (Doc B)", key="btn_ocrB", use_container_width=True, type="primary"):
+                if st.button(f"▶️ {t['start_ocr']} (Doc B)", key="btn_ocrB", use_container_width=True):
                     selectedB = parse_page_range(prB, len(metaB["page_images"]))
                     st.session_state.docB_selected_pages = selectedB
-                    
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    status_text.text(f"Processing {len(selectedB)} pages...")
-                    progress_bar.progress(25)
-                    
-                    with st.spinner("🔄 Running OCR..."):
+                    with st.spinner("Processing Doc B OCR..."):
                         if ocr_mode_B == "Python OCR":
                             text = extract_text_python(metaB["raw_bytes"], selectedB, ocr_lang_B)
                         else:
                             text = extract_text_llm([metaB["page_images"][i][1] for i in selectedB],
                                                    llm_ocr_model_B, router)
-                    
-                    progress_bar.progress(100)
-                    status_text.empty()
-                    progress_bar.empty()
-                    
                     st.session_state.docB_ocr_text = text
-                    st.markdown(f"""
-                        <div class="status-badge status-ready">
-                            <span class="glow-dot"></span>
-                            ✅ {t['ocr_completed']}: {len(text)} {t['char_count']}
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.success("✅ OCR Complete!")
                     st.balloons()
-                    st.rerun()
-        
-        # Preview OCR result if available
-        if st.session_state.docB_ocr_text:
-            with st.expander(f"👁️ {t['preview_ocr']} (Doc B)", expanded=True):
-                st.text_area("OCR Result", value=st.session_state.docB_ocr_text[:1000] + 
-                            ("..." if len(st.session_state.docB_ocr_text) > 1000 else ""), 
-                            height=250, key="preview_ocrB", disabled=True)
-                st.caption(f"Showing first 1000 of {len(st.session_state.docB_ocr_text)} characters")
     
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ========== PROCEED TO COMBINE BUTTON ==========
-    st.markdown("---")
-    st.markdown('<div class="premium-card">', unsafe_allow_html=True)
-    
-    has_docA = bool(st.session_state.docA_text or st.session_state.docA_ocr_text)
-    has_docB = bool(st.session_state.docB_text or st.session_state.docB_ocr_text)
-    
-    col_status, col_btn = st.columns([2, 1])
-    
-    with col_status:
-        st.markdown("### 📋 Combination Readiness")
-        ready_items = []
-        if has_docA:
-            ready_items.append("✅ Doc A Ready")
-        else:
-            ready_items.append("⏳ Doc A Pending")
-        
-        if has_docB:
-            ready_items.append("✅ Doc B Ready")
-        else:
-            ready_items.append("⏳ Doc B Pending")
-        
-        for item in ready_items:
-            st.markdown(f"- {item}")
-    
-    with col_btn:
-        if has_docA and has_docB:
-            st.markdown(f"""
-                <div class="status-badge status-ready" style="animation: pulse 1.5s infinite;">
-                    <span class="glow-dot"></span>
-                    {t['ready_to_combine']}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button(f"🚀 {t['proceed_combine']}", key="proceed_combine", 
-                        use_container_width=True, type="primary"):
-                st.session_state.combine_text = f"## Document A\n\n{st.session_state.docA_ocr_text or st.session_state.docA_text}\n\n---\n\n## Document B\n\n{st.session_state.docB_ocr_text or st.session_state.docB_text}"
-                st.success("✅ Documents combined! Switching to Combine tab...")
-                time.sleep(1)
-                st.rerun()
-        else:
-            st.warning("⚠️ Please upload and process both documents first")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+
 
 # TAB 2: Preview & Edit - IMPROVED VERSION
 # Replace the entire "with tab2:" section with this code
