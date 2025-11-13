@@ -1674,12 +1674,28 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 ])
 
 # TAB 1: Upload & OCR
+# TAB 1: Upload & OCR
 with tab1:
     st.markdown('<div class="premium-card">', unsafe_allow_html=True)
     st.subheader(f"{theme_icon} {t['upload_docs']}")
     
+    # Progress indicator
+    progress_steps = []
+    if st.session_state.docA_text or st.session_state.docA_ocr_text:
+        progress_steps.append("Doc A ✓")
+    if st.session_state.docB_text or st.session_state.docB_ocr_text:
+        progress_steps.append("Doc B ✓")
+    
+    if progress_steps:
+        st.markdown(f"""
+            <div style="text-align: center; padding: 1rem; background: linear-gradient(135deg, {ANIMAL_THEMES[st.session_state.theme]['primary']}20, {ANIMAL_THEMES[st.session_state.theme]['secondary']}20); border-radius: 15px; margin-bottom: 1rem;">
+                <strong>📊 Progress:</strong> {' → '.join(progress_steps)}
+            </div>
+        """, unsafe_allow_html=True)
+    
     colA, colB = st.columns(2)
     
+    # ========== DOC A ==========
     with colA:
         st.markdown(f"#### 📄 {t['doc_a']}")
         fileA = st.file_uploader(f"{t['doc_a']} Upload", 
@@ -1689,36 +1705,80 @@ with tab1:
             textA, metaA = load_any_file(fileA)
             st.session_state.docA_text = textA
             st.session_state.docA_meta = metaA
-            st.success(f"✅ {metaA.get('preview', '')}")
+            
+            # Status indicator
+            st.markdown(f"""
+                <div class="status-badge status-ready">
+                    <span class="glow-dot"></span>
+                    ✅ {t['text_extracted']}: {len(textA)} {t['char_count']}
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Preview uploaded content
+            with st.expander(f"👁️ {t['preview_text']} (Doc A)", expanded=False):
+                st.text_area("Preview", value=textA[:1000] + ("..." if len(textA) > 1000 else ""), 
+                            height=200, key="preview_docA", disabled=True)
+                st.caption(f"Showing first 1000 of {len(textA)} characters")
             
             if metaA["type"] == "pdf" and metaA["page_images"]:
-                st.caption(f"Preview ({len(metaA['page_images'])} pages)")
+                st.caption(f"📄 PDF Preview: {len(metaA['page_images'])} pages")
                 colsA = st.columns(4)
                 for i, (idx, im) in enumerate(metaA["page_images"][:8]):
-                    colsA[i % 4].image(im, caption=f"Page {idx+1}", use_column_width=True)
+                    colsA[i % 4].image(im, caption=f"P{idx+1}", use_column_width=True)
                 
-                prA = st.text_input(f"{t['page_range']} (Doc A)", value="1-5", key="prA")
-                ocr_mode_A = st.selectbox(f"{t['ocr_mode']} (Doc A)",
-                                         ["Python OCR", "LLM OCR"], key="ocrA")
-                ocr_lang_A = st.selectbox(f"{t['ocr_lang']} (Doc A)",
-                                         ["english", "traditional-chinese"], key="ocrlangA")
+                st.markdown("##### 🔍 OCR Settings")
+                prA = st.text_input(f"{t['page_range']} (e.g., 1-5, 7, 9-12)", value="1-5", key="prA")
+                
+                col_ocr1, col_ocr2 = st.columns(2)
+                with col_ocr1:
+                    ocr_mode_A = st.selectbox(f"{t['ocr_mode']}", ["Python OCR", "LLM OCR"], key="ocrA")
+                with col_ocr2:
+                    ocr_lang_A = st.selectbox(f"{t['ocr_lang']}", ["english", "traditional-chinese"], key="ocrlangA")
+                
                 if ocr_mode_A == "LLM OCR":
-                    llm_ocr_model_A = st.selectbox("LLM Model (Doc A)",
+                    llm_ocr_model_A = st.selectbox("LLM Model", 
                                                    ["gemini-2.5-flash", "gpt-4o-mini"], key="llmocrA")
                 
-                if st.button(f"▶️ {t['start_ocr']} (Doc A)", key="btn_ocrA", use_container_width=True):
+                if st.button(f"▶️ {t['start_ocr']} (Doc A)", key="btn_ocrA", use_container_width=True, type="primary"):
                     selectedA = parse_page_range(prA, len(metaA["page_images"]))
                     st.session_state.docA_selected_pages = selectedA
-                    with st.spinner("Processing Doc A OCR..."):
+                    
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text(f"Processing {len(selectedA)} pages...")
+                    progress_bar.progress(25)
+                    
+                    with st.spinner("🔄 Running OCR..."):
                         if ocr_mode_A == "Python OCR":
                             text = extract_text_python(metaA["raw_bytes"], selectedA, ocr_lang_A)
                         else:
                             text = extract_text_llm([metaA["page_images"][i][1] for i in selectedA],
                                                    llm_ocr_model_A, router)
+                    
+                    progress_bar.progress(100)
+                    status_text.empty()
+                    progress_bar.empty()
+                    
                     st.session_state.docA_ocr_text = text
-                    st.success("✅ OCR Complete!")
+                    st.markdown(f"""
+                        <div class="status-badge status-ready">
+                            <span class="glow-dot"></span>
+                            ✅ {t['ocr_completed']}: {len(text)} {t['char_count']}
+                        </div>
+                    """, unsafe_allow_html=True)
                     st.balloons()
+                    st.rerun()
+        
+        # Preview OCR result if available
+        if st.session_state.docA_ocr_text:
+            with st.expander(f"👁️ {t['preview_ocr']} (Doc A)", expanded=True):
+                st.text_area("OCR Result", value=st.session_state.docA_ocr_text[:1000] + 
+                            ("..." if len(st.session_state.docA_ocr_text) > 1000 else ""), 
+                            height=250, key="preview_ocrA", disabled=True)
+                st.caption(f"Showing first 1000 of {len(st.session_state.docA_ocr_text)} characters")
     
+    # ========== DOC B ==========
     with colB:
         st.markdown(f"#### 📄 {t['doc_b']}")
         fileB = st.file_uploader(f"{t['doc_b']} Upload",
@@ -1728,35 +1788,941 @@ with tab1:
             textB, metaB = load_any_file(fileB)
             st.session_state.docB_text = textB
             st.session_state.docB_meta = metaB
-            st.success(f"✅ {metaB.get('preview', '')}")
+            
+            # Status indicator
+            st.markdown(f"""
+                <div class="status-badge status-ready">
+                    <span class="glow-dot"></span>
+                    ✅ {t['text_extracted']}: {len(textB)} {t['char_count']}
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Preview uploaded content
+            with st.expander(f"👁️ {t['preview_text']} (Doc B)", expanded=False):
+                st.text_area("Preview", value=textB[:1000] + ("..." if len(textB) > 1000 else ""), 
+                            height=200, key="preview_docB", disabled=True)
+                st.caption(f"Showing first 1000 of {len(textB)} characters")
             
             if metaB["type"] == "pdf" and metaB["page_images"]:
-                st.caption(f"Preview ({len(metaB['page_images'])} pages)")
+                st.caption(f"📄 PDF Preview: {len(metaB['page_images'])} pages")
                 colsB = st.columns(4)
                 for i, (idx, im) in enumerate(metaB["page_images"][:8]):
-                    colsB[i % 4].image(im, caption=f"Page {idx+1}", use_column_width=True)
+                    colsB[i % 4].image(im, caption=f"P{idx+1}", use_column_width=True)
                 
-                prB = st.text_input(f"{t['page_range']} (Doc B)", value="1-5", key="prB")
-                ocr_mode_B = st.selectbox(f"{t['ocr_mode']} (Doc B)",
-                                         ["Python OCR", "LLM OCR"], key="ocrB")
-                ocr_lang_B = st.selectbox(f"{t['ocr_lang']} (Doc B)",
-                                         ["english", "traditional-chinese"], key="ocrlangB")
+                st.markdown("##### 🔍 OCR Settings")
+                prB = st.text_input(f"{t['page_range']} (e.g., 1-5, 7, 9-12)", value="1-5", key="prB")
+                
+                col_ocr1, col_ocr2 = st.columns(2)
+                with col_ocr1:
+                    ocr_mode_B = st.selectbox(f"{t['ocr_mode']}", ["Python OCR", "LLM OCR"], key="ocrB")
+                with col_ocr2:
+                    ocr_lang_B = st.selectbox(f"{t['ocr_lang']}", ["english", "traditional-chinese"], key="ocrlangB")
+                
                 if ocr_mode_B == "LLM OCR":
-                    llm_ocr_model_B = st.selectbox("LLM Model (Doc B)",
+                    llm_ocr_model_B = st.selectbox("LLM Model",
                                                    ["gemini-2.5-flash", "gpt-4o-mini"], key="llmocrB")
                 
-                if st.button(f"▶️ {t['start_ocr']} (Doc B)", key="btn_ocrB", use_container_width=True):
+                if st.button(f"▶️ {t['start_ocr']} (Doc B)", key="btn_ocrB", use_container_width=True, type="primary"):
                     selectedB = parse_page_range(prB, len(metaB["page_images"]))
                     st.session_state.docB_selected_pages = selectedB
-                    with st.spinner("Processing Doc B OCR..."):
+                    
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text(f"Processing {len(selectedB)} pages...")
+                    progress_bar.progress(25)
+                    
+                    with st.spinner("🔄 Running OCR..."):
                         if ocr_mode_B == "Python OCR":
                             text = extract_text_python(metaB["raw_bytes"], selectedB, ocr_lang_B)
                         else:
                             text = extract_text_llm([metaB["page_images"][i][1] for i in selectedB],
                                                    llm_ocr_model_B, router)
+                    
+                    progress_bar.progress(100)
+                    status_text.empty()
+                    progress_bar.empty()
+                    
                     st.session_state.docB_ocr_text = text
-                    st.success("✅ OCR Complete!")
+                    st.markdown(f"""
+                        <div class="status-badge status-ready">
+                            <span class="glow-dot"></span>
+                            ✅ {t['ocr_completed']}: {len(text)} {t['char_count']}
+                        </div>
+                    """, unsafe_allow_html=True)
                     st.balloons()
+                    st.rerun()
+        
+        # Preview OCR result if available
+        if st.session_state.docB_ocr_text:
+            with st.expander(f"👁️ {t['preview_ocr']} (Doc B)", expanded=True):
+                st.text_area("OCR Result", value=st.session_state.docB_ocr_text[:1000] + 
+                            ("..." if len(st.session_state.docB_ocr_text) > 1000 else ""), 
+                            height=250, key="preview_ocrB", disabled=True)
+                st.caption(f"Showing first 1000 of {len(st.session_state.docB_ocr_text)} characters")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ========== PROCEED TO COMBINE BUTTON ==========
+    st.markdown("---")
+    st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+    
+    has_docA = bool(st.session_state.docA_text or st.session_state.docA_ocr_text)
+    has_docB = bool(st.session_state.docB_text or st.session_state.docB_ocr_text)
+    
+    col_status, col_btn = st.columns([2, 1])
+    
+    with col_status:
+        st.markdown("### 📋 Combination Readiness")
+        ready_items = []
+        if has_docA:
+            ready_items.append("✅ Doc A Ready")
+        else:
+            ready_items.append("⏳ Doc A Pending")
+        
+        if has_docB:
+            ready_items.append("✅ Doc B Ready")
+        else:
+            ready_items.append("⏳ Doc B Pending")
+        
+        for item in ready_items:
+            st.markdown(f"- {item}")
+    
+    with col_btn:
+        if has_docA and has_docB:
+            st.markdown(f"""
+                <div class="status-badge status-ready" style="animation: pulse 1.5s infinite;">
+                    <span class="glow-dot"></span>
+                    {t['ready_to_combine']}
+                </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button(f"🚀 {t['proceed_combine']}", key="proceed_combine", 
+                        use_container_width=True, type="primary"):
+                st.session_state.combine_text = f"## Document A\n\n{st.session_state.docA_ocr_text or st.session_state.docA_text}\n\n---\n\n## Document B\n\n{st.session_state.docB_ocr_text or st.session_state.docB_text}"
+                st.success("✅ Documents combined! Switching to Combine tab...")
+                time.sleep(1)
+                st.rerun()
+        else:
+            st.warning("⚠️ Please upload and process both documents first")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# TAB 2: Preview & Edit - IMPROVED VERSION
+# Replace the entire "with tab2:" section with this code
+
+with tab2:
+    st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+    st.subheader(f"{theme_icon} {t['preview_tab']}")
+    
+    # Check if documents are ready
+    has_docA = bool(st.session_state.docA_text or st.session_state.docA_ocr_text)
+    has_docB = bool(st.session_state.docB_text or st.session_state.docB_ocr_text)
+    
+    if not has_docA and not has_docB:
+        st.info("ℹ️ No documents loaded yet. Please upload documents in Tab 1.")
+        if st.button("↩️ Go to Upload Tab", key="goto_tab1_from_tab2"):
+            st.info("Please click on the 'Upload & OCR' tab above")
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        # ========== GLOBAL SETTINGS ==========
+        st.markdown("### 🎨 Global Settings")
+        
+        col_color, col_keywords = st.columns([1, 3])
+        
+        with col_color:
+            st.session_state.keywords_color = st.color_picker(
+                f"{t['keyword_highlight']}", 
+                st.session_state.keywords_color, 
+                key="kw_color_tab2"
+            )
+            
+            # Color preview
+            st.markdown(f"""
+                <div style="background: {st.session_state.keywords_color}; 
+                     padding: 10px; border-radius: 8px; text-align: center; 
+                     color: white; font-weight: bold; margin-top: 10px;">
+                    Sample Highlight
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_keywords:
+            keywords_input = st.text_input(
+                f"{t['keywords_list']}", 
+                value="藥品,適應症,不良反應,禁忌症,警語,劑量,用法,成分,副作用,注意事項", 
+                key="kw_list_tab2",
+                help="Enter keywords separated by commas. These will be highlighted in the preview."
+            )
+            st.session_state.keywords_list = [k.strip() for k in keywords_input.split(",") if k.strip()]
+            
+            if st.session_state.keywords_list:
+                st.caption(f"✅ {len(st.session_state.keywords_list)} keywords configured")
+        
+        st.markdown("---")
+        
+        # ========== DOCUMENT COMPARISON OVERVIEW ==========
+        st.markdown("### 📊 Document Comparison Overview")
+        
+        col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+        
+        docA_final = st.session_state.docA_ocr_text or st.session_state.docA_text or ""
+        docB_final = st.session_state.docB_ocr_text or st.session_state.docB_text or ""
+        
+        with col_stats1:
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{len(docA_final):,}</div>
+                    <div class="metric-label">Doc A Chars</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_stats2:
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{len(docB_final):,}</div>
+                    <div class="metric-label">Doc B Chars</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_stats3:
+            word_count_A = len(docA_final.split()) if docA_final else 0
+            word_count_B = len(docB_final.split()) if docB_final else 0
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{word_count_A + word_count_B:,}</div>
+                    <div class="metric-label">Total Words</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_stats4:
+            line_count_A = len(docA_final.splitlines()) if docA_final else 0
+            line_count_B = len(docB_final.splitlines()) if docB_final else 0
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{line_count_A + line_count_B:,}</div>
+                    <div class="metric-label">Total Lines</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # ========== SIDE-BY-SIDE EDITORS ==========
+        st.markdown("### ✏️ Document Editors")
+        
+        colA, colB = st.columns(2)
+        
+        # ========== DOC A EDITOR ==========
+        with colA:
+            st.markdown(f"#### 📄 {t['doc_a']} Editor")
+            
+            if has_docA:
+                # Status badge
+                source = "OCR" if st.session_state.docA_ocr_text else "Upload"
+                st.markdown(f"""
+                    <div class="status-badge status-ready" style="font-size: 0.9rem;">
+                        <span class="glow-dot"></span>
+                        Source: {source} | {len(docA_final):,} chars | {len(docA_final.split())} words
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Editor tabs
+                tab_edit_A, tab_preview_A, tab_stats_A = st.tabs(["✏️ Edit", "👁️ Preview", "📊 Stats"])
+                
+                with tab_edit_A:
+                    st.session_state.docA_text = st.text_area(
+                        "Edit Doc A", 
+                        value=docA_final, 
+                        height=400, 
+                        key="docA_edit_tab2",
+                        help="Edit the document text. Changes are saved automatically.",
+                        label_visibility="collapsed"
+                    )
+                    
+                    col_save, col_clear, col_copy = st.columns(3)
+                    with col_save:
+                        if st.button("💾 Save", key="save_docA", use_container_width=True):
+                            st.success("✅ Saved!")
+                    with col_clear:
+                        if st.button("🗑️ Clear", key="clear_docA", use_container_width=True):
+                            st.session_state.docA_text = ""
+                            st.session_state.docA_ocr_text = ""
+                            st.rerun()
+                    with col_copy:
+                        st.download_button(
+                            "📥 Export", 
+                            data=st.session_state.docA_text,
+                            file_name=f"docA_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                
+                with tab_preview_A:
+                    if st.button(f"🎨 {t['preview_highlight']} (Doc A)", 
+                               key="preview_highlight_A", 
+                               use_container_width=True):
+                        with st.spinner("Generating preview..."):
+                            html_A = highlight_keywords_md(
+                                st.session_state.docA_text, 
+                                st.session_state.keywords_list, 
+                                st.session_state.keywords_color
+                            )
+                            st.markdown(html_A, unsafe_allow_html=True)
+                    else:
+                        st.info("Click the button above to preview with keyword highlighting")
+                
+                with tab_stats_A:
+                    st.markdown("#### 📈 Document A Statistics")
+                    
+                    # Basic stats
+                    chars = len(st.session_state.docA_text)
+                    words = len(st.session_state.docA_text.split())
+                    lines = len(st.session_state.docA_text.splitlines())
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Characters", f"{chars:,}")
+                    col2.metric("Words", f"{words:,}")
+                    col3.metric("Lines", f"{lines:,}")
+                    
+                    # Keyword matches
+                    if st.session_state.keywords_list:
+                        st.markdown("##### 🔍 Keyword Occurrences")
+                        keyword_counts = []
+                        for kw in st.session_state.keywords_list[:10]:  # Top 10
+                            count = st.session_state.docA_text.lower().count(kw.lower())
+                            if count > 0:
+                                keyword_counts.append({"Keyword": kw, "Count": count})
+                        
+                        if keyword_counts:
+                            df_kw = pd.DataFrame(keyword_counts)
+                            fig_kw = px.bar(
+                                df_kw, 
+                                x="Keyword", 
+                                y="Count", 
+                                title="Keyword Frequency in Doc A",
+                                color="Count",
+                                color_continuous_scale="Viridis"
+                            )
+                            fig_kw.update_layout(
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)'
+                            )
+                            st.plotly_chart(fig_kw, use_container_width=True)
+                        else:
+                            st.info("No keyword matches found")
+            else:
+                st.info("📄 Doc A not loaded yet")
+        
+        # ========== DOC B EDITOR ==========
+        with colB:
+            st.markdown(f"#### 📄 {t['doc_b']} Editor")
+            
+            if has_docB:
+                # Status badge
+                source = "OCR" if st.session_state.docB_ocr_text else "Upload"
+                st.markdown(f"""
+                    <div class="status-badge status-ready" style="font-size: 0.9rem;">
+                        <span class="glow-dot"></span>
+                        Source: {source} | {len(docB_final):,} chars | {len(docB_final.split())} words
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Editor tabs
+                tab_edit_B, tab_preview_B, tab_stats_B = st.tabs(["✏️ Edit", "👁️ Preview", "📊 Stats"])
+                
+                with tab_edit_B:
+                    st.session_state.docB_text = st.text_area(
+                        "Edit Doc B", 
+                        value=docB_final, 
+                        height=400, 
+                        key="docB_edit_tab2",
+                        help="Edit the document text. Changes are saved automatically.",
+                        label_visibility="collapsed"
+                    )
+                    
+                    col_save, col_clear, col_copy = st.columns(3)
+                    with col_save:
+                        if st.button("💾 Save", key="save_docB", use_container_width=True):
+                            st.success("✅ Saved!")
+                    with col_clear:
+                        if st.button("🗑️ Clear", key="clear_docB", use_container_width=True):
+                            st.session_state.docB_text = ""
+                            st.session_state.docB_ocr_text = ""
+                            st.rerun()
+                    with col_copy:
+                        st.download_button(
+                            "📥 Export", 
+                            data=st.session_state.docB_text,
+                            file_name=f"docB_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                
+                with tab_preview_B:
+                    if st.button(f"🎨 {t['preview_highlight']} (Doc B)", 
+                               key="preview_highlight_B", 
+                               use_container_width=True):
+                        with st.spinner("Generating preview..."):
+                            html_B = highlight_keywords_md(
+                                st.session_state.docB_text, 
+                                st.session_state.keywords_list, 
+                                st.session_state.keywords_color
+                            )
+                            st.markdown(html_B, unsafe_allow_html=True)
+                    else:
+                        st.info("Click the button above to preview with keyword highlighting")
+                
+                with tab_stats_B:
+                    st.markdown("#### 📈 Document B Statistics")
+                    
+                    # Basic stats
+                    chars = len(st.session_state.docB_text)
+                    words = len(st.session_state.docB_text.split())
+                    lines = len(st.session_state.docB_text.splitlines())
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Characters", f"{chars:,}")
+                    col2.metric("Words", f"{words:,}")
+                    col3.metric("Lines", f"{lines:,}")
+                    
+                    # Keyword matches
+                    if st.session_state.keywords_list:
+                        st.markdown("##### 🔍 Keyword Occurrences")
+                        keyword_counts = []
+                        for kw in st.session_state.keywords_list[:10]:  # Top 10
+                            count = st.session_state.docB_text.lower().count(kw.lower())
+                            if count > 0:
+                                keyword_counts.append({"Keyword": kw, "Count": count})
+                        
+                        if keyword_counts:
+                            df_kw = pd.DataFrame(keyword_counts)
+                            fig_kw = px.bar(
+                                df_kw, 
+                                x="Keyword", 
+                                y="Count", 
+                                title="Keyword Frequency in Doc B",
+                                color="Count",
+                                color_continuous_scale="Plasma"
+                            )
+                            fig_kw.update_layout(
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)'
+                            )
+                            st.plotly_chart(fig_kw, use_container_width=True)
+                        else:
+                            st.info("No keyword matches found")
+            else:
+                st.info("📄 Doc B not loaded yet")
+        
+        st.markdown("---")
+        
+        # ========== ADVANCED COMPARISON TOOLS ==========
+        st.markdown("### 🔬 Advanced Analysis Tools")
+        
+        if has_docA and has_docB:
+            analysis_tabs = st.tabs([
+                "📊 Comparative Stats", 
+                "🔍 Text Similarity", 
+                "📝 Side-by-Side Compare",
+                "🎯 Keyword Heatmap"
+            ])
+            
+            # Tab: Comparative Stats
+            with analysis_tabs[0]:
+                st.markdown("#### 📊 Document Comparison")
+                
+                comparison_data = {
+                    "Metric": ["Characters", "Words", "Lines", "Avg Word Length"],
+                    "Doc A": [
+                        len(st.session_state.docA_text),
+                        len(st.session_state.docA_text.split()),
+                        len(st.session_state.docA_text.splitlines()),
+                        round(len(st.session_state.docA_text) / max(len(st.session_state.docA_text.split()), 1), 2)
+                    ],
+                    "Doc B": [
+                        len(st.session_state.docB_text),
+                        len(st.session_state.docB_text.split()),
+                        len(st.session_state.docB_text.splitlines()),
+                        round(len(st.session_state.docB_text) / max(len(st.session_state.docB_text.split()), 1), 2)
+                    ]
+                }
+                
+                df_compare = pd.DataFrame(comparison_data)
+                df_compare["Difference"] = df_compare["Doc B"] - df_compare["Doc A"]
+                df_compare["% Change"] = ((df_compare["Doc B"] - df_compare["Doc A"]) / 
+                                         df_compare["Doc A"].replace(0, 1) * 100).round(2)
+                
+                st.dataframe(df_compare, use_container_width=True)
+                
+                # Visualization
+                fig_compare = px.bar(
+                    df_compare, 
+                    x="Metric", 
+                    y=["Doc A", "Doc B"],
+                    title="Document Comparison",
+                    barmode="group",
+                    color_discrete_map={"Doc A": ANIMAL_THEMES[st.session_state.theme]["primary"],
+                                       "Doc B": ANIMAL_THEMES[st.session_state.theme]["accent"]}
+                )
+                fig_compare.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig_compare, use_container_width=True)
+            
+            # Tab: Text Similarity
+            with analysis_tabs[1]:
+                st.markdown("#### 🔍 Text Similarity Analysis")
+                
+                # Simple word-based similarity
+                words_A = set(st.session_state.docA_text.lower().split())
+                words_B = set(st.session_state.docB_text.lower().split())
+                
+                common_words = words_A.intersection(words_B)
+                unique_A = words_A - words_B
+                unique_B = words_B - words_A
+                
+                if words_A and words_B:
+                    jaccard_similarity = len(common_words) / len(words_A.union(words_B)) * 100
+                else:
+                    jaccard_similarity = 0
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                col1.metric("Similarity Score", f"{jaccard_similarity:.1f}%")
+                col2.metric("Common Words", f"{len(common_words):,}")
+                col3.metric("Unique to A", f"{len(unique_A):,}")
+                col4.metric("Unique to B", f"{len(unique_B):,}")
+                
+                # Similarity gauge
+                fig_gauge = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=jaccard_similarity,
+                    title={'text': "Similarity Score"},
+                    gauge={
+                        'axis': {'range': [None, 100]},
+                        'bar': {'color': ANIMAL_THEMES[st.session_state.theme]["accent"]},
+                        'steps': [
+                            {'range': [0, 33], 'color': "lightgray"},
+                            {'range': [33, 66], 'color': "gray"},
+                            {'range': [66, 100], 'color': "darkgray"}
+                        ],
+                        'threshold': {
+                            'line': {'color': "red", 'width': 4},
+                            'thickness': 0.75,
+                            'value': 80
+                        }
+                    }
+                ))
+                fig_gauge.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    height=300
+                )
+                st.plotly_chart(fig_gauge, use_container_width=True)
+                
+                # Show sample common words
+                if common_words:
+                    st.markdown("##### 🔤 Sample Common Words (up to 20)")
+                    common_sample = list(common_words)[:20]
+                    st.write(", ".join(common_sample))
+            
+            # Tab: Side-by-Side
+            with analysis_tabs[2]:
+                st.markdown("#### 📝 Side-by-Side Text Comparison")
+                
+                col_side_A, col_side_B = st.columns(2)
+                
+                with col_side_A:
+                    st.markdown("##### 📄 Document A")
+                    st.text_area(
+                        "Doc A View",
+                        value=st.session_state.docA_text[:2000] + 
+                              ("..." if len(st.session_state.docA_text) > 2000 else ""),
+                        height=400,
+                        disabled=True,
+                        key="side_by_side_A",
+                        label_visibility="collapsed"
+                    )
+                
+                with col_side_B:
+                    st.markdown("##### 📄 Document B")
+                    st.text_area(
+                        "Doc B View",
+                        value=st.session_state.docB_text[:2000] + 
+                              ("..." if len(st.session_state.docB_text) > 2000 else ""),
+                        height=400,
+                        disabled=True,
+                        key="side_by_side_B",
+                        label_visibility="collapsed"
+                    )
+                
+                st.caption("Showing first 2000 characters of each document for comparison")
+            
+            # Tab: Keyword Heatmap
+            with analysis_tabs[3]:
+                st.markdown("#### 🎯 Keyword Distribution Heatmap")
+                
+                if st.session_state.keywords_list:
+                    # Count keywords in both documents
+                    heatmap_data = []
+                    for kw in st.session_state.keywords_list[:15]:  # Top 15 keywords
+                        count_A = st.session_state.docA_text.lower().count(kw.lower())
+                        count_B = st.session_state.docB_text.lower().count(kw.lower())
+                        heatmap_data.append({
+                            "Keyword": kw,
+                            "Doc A": count_A,
+                            "Doc B": count_B
+                        })
+                    
+                    df_heatmap = pd.DataFrame(heatmap_data)
+                    
+                    if not df_heatmap.empty and (df_heatmap["Doc A"].sum() > 0 or df_heatmap["Doc B"].sum() > 0):
+                        fig_heatmap = px.imshow(
+                            df_heatmap[["Doc A", "Doc B"]].T,
+                            labels=dict(x="Keyword", y="Document", color="Frequency"),
+                            x=df_heatmap["Keyword"],
+                            y=["Doc A", "Doc B"],
+                            title="Keyword Frequency Heatmap",
+                            color_continuous_scale="Viridis",
+                            aspect="auto"
+                        )
+                        fig_heatmap.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)'
+                        )
+                        st.plotly_chart(fig_heatmap, use_container_width=True)
+                        
+                        # Data table
+                        st.dataframe(df_heatmap, use_container_width=True)
+                    else:
+                        st.info("No keyword matches found in documents")
+                else:
+                    st.warning("Please configure keywords in the Global Settings section above")
+        else:
+            st.info("📋 Both documents must be loaded to use advanced comparison tools")
+        
+        st.markdown("---")
+        
+        # ========== BULK OPERATIONS ==========
+        st.markdown("### ⚙️ Bulk Operations")
+        
+        col_bulk1, col_bulk2, col_bulk3, col_bulk4 = st.columns(4)
+        
+        with col_bulk1:
+            if st.button("🔄 Sync A → B", use_container_width=True, 
+                        help="Copy Doc A content to Doc B"):
+                if has_docA:
+                    st.session_state.docB_text = st.session_state.docA_text
+                    st.session_state.docB_ocr_text = ""
+                    st.success("✅ Synced!")
+                    st.rerun()
+                else:
+                    st.warning("Doc A is empty")
+        
+        with col_bulk2:
+            if st.button("🔄 Sync B → A", use_container_width=True,
+                        help="Copy Doc B content to Doc A"):
+                if has_docB:
+                    st.session_state.docA_text = st.session_state.docB_text
+                    st.session_state.docA_ocr_text = ""
+                    st.success("✅ Synced!")
+                    st.rerun()
+                else:
+                    st.warning("Doc B is empty")
+        
+        with col_bulk3:
+            if st.button("🔀 Swap A ↔ B", use_container_width=True,
+                        help="Swap Doc A and Doc B contents"):
+                if has_docA or has_docB:
+                    temp_text = st.session_state.docA_text
+                    temp_ocr = st.session_state.docA_ocr_text
+                    st.session_state.docA_text = st.session_state.docB_text
+                    st.session_state.docA_ocr_text = st.session_state.docB_ocr_text
+                    st.session_state.docB_text = temp_text
+                    st.session_state.docB_ocr_text = temp_ocr
+                    st.success("✅ Swapped!")
+                    st.rerun()
+                else:
+                    st.warning("Both documents are empty")
+        
+        with col_bulk4:
+            if st.button("🗑️ Clear Both", use_container_width=True,
+                        help="Clear both documents", type="secondary"):
+                st.session_state.docA_text = ""
+                st.session_state.docA_ocr_text = ""
+                st.session_state.docB_text = ""
+                st.session_state.docB_ocr_text = ""
+                st.warning("⚠️ Both documents cleared")
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # ========== PROCEED TO COMBINE ==========
+        st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+        st.markdown("### 🔗 Ready to Combine Documents")
+        
+        col_ready, col_proceed = st.columns([2, 1])
+        
+        with col_ready:
+            if has_docA and has_docB:
+                st.markdown(f"""
+                    ✅ Doc A: {len(st.session_state.docA_text):,} characters  
+                    ✅ Doc B: {len(st.session_state.docB_text):,} characters  
+                    ✅ Combined will be: {len(st.session_state.docA_text) + len(st.session_state.docB_text):,} characters  
+                    ✅ Ready for combination
+                """)
+            else:
+                st.warning("⚠️ Both documents must be loaded before combining")
+        
+        with col_proceed:
+            if has_docA and has_docB:
+                st.markdown(f"""
+                    <div class="status-badge status-ready" style="animation: pulse 1.5s infinite;">
+                        <span class="glow-dot"></span>
+                        {t['ready_to_combine']}
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button(f"🚀 {t['proceed_combine']}", 
+                           key="proceed_combine_tab2", 
+                           use_container_width=True, 
+                           type="primary"):
+                    st.session_state.combine_text = f"## Document A\n\n{st.session_state.docA_text}\n\n---\n\n## Document B\n\n{st.session_state.docB_text}"
+                    st.success("✅ Documents combined! Proceeding to Combine tab...")
+                    time.sleep(1)
+                    st.info("Please click on the 'Combine & Summarize' tab above")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# TAB 3: Combine & Summarize
+with tab3:
+    st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+    st.subheader(f"{theme_icon} {t['combine_tab']}")
+    
+    # Readiness check
+    if not st.session_state.combine_text:
+        st.info("ℹ️ Please complete Tab 1 and click 'Proceed to Combine' to continue")
+        if st.button("↩️ Back to Upload Tab", key="back_to_upload"):
+            st.rerun()
+    else:
+        # Combination success indicator
+        st.markdown(f"""
+            <div class="status-badge status-ready">
+                <span class="glow-dot"></span>
+                ✅ Documents Combined: {len(st.session_state.combine_text)} characters
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.session_state.combine_highlight_color = st.color_picker(
+            f"{t['keyword_highlight']}", 
+            st.session_state.combine_highlight_color, 
+            key="combine_col"
+        )
+        
+        st.markdown("#### 🔗 Combined Document Editor")
+        st.session_state.combine_text = st.text_area(
+            "Edit combined text", 
+            value=st.session_state.combine_text, 
+            height=400, 
+            key="combine_edit",
+            label_visibility="collapsed"
+        )
+        
+        col_prev, col_kw = st.columns([2, 3])
+        with col_kw:
+            keywords_input = st.text_input(
+                f"{t['keywords_list']}", 
+                value="藥品,適應症,不良反應,禁忌症,警語", 
+                key="kw_combine"
+            )
+            st.session_state.keywords_list = [k.strip() for k in keywords_input.split(",") if k.strip()]
+        
+        with col_prev:
+            if st.button(f"👁️ {t['preview_highlight']}", key="prev_combined", use_container_width=True):
+                html_preview = highlight_keywords_md(
+                    st.session_state.combine_text, 
+                    st.session_state.keywords_list, 
+                    st.session_state.combine_highlight_color
+                )
+                st.markdown(html_preview, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.markdown("#### 🧠 AI Summary & Entity Extraction")
+        
+        col_model, col_btn = st.columns([2, 1])
+        with col_model:
+            st.session_state.summary_model = st.selectbox(
+                f"{t['summary_model']}", 
+                ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gpt-4o-mini", 
+                 "gpt-4.1-mini", "gpt-5-nano", "grok-4-fast-reasoning", "grok-3-mini"],
+                index=0
+            )
+        
+        with col_btn:
+            run_summary = st.button(
+                f"🚀 {t['run_summary']}", 
+                key="run_summary", 
+                use_container_width=True, 
+                type="primary"
+            )
+        
+        if run_summary:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            status_text.text("🔄 Preparing analysis...")
+            progress_bar.progress(10)
+            
+            with st.spinner("🧠 Generating summary and extracting entities..."):
+                messages = [
+                    {"role": "system", "content": SUMMARY_AND_ENTITIES_PROMPT},
+                    {"role": "user", "content": st.session_state.combine_text}
+                ]
+                params = {"temperature": 0.3, "top_p": 0.95, "max_tokens": 1800}
+                
+                status_text.text("🤖 Calling AI model...")
+                progress_bar.progress(30)
+                
+                try:
+                    output, usage, provider = router.generate_text(
+                        st.session_state.summary_model, messages, params
+                    )
+                    
+                    progress_bar.progress(70)
+                    status_text.text("📊 Parsing results...")
+                    
+                    # Parse summary
+                    summary_md = ""
+                    sm = re.search(r"<SUMMARY_MD>(.*?)</SUMMARY_MD>", output, flags=re.S | re.I)
+                    if sm:
+                        summary_md = sm.group(1).strip()
+                    else:
+                        summary_md = output.strip()[:3000]
+                    
+                    # Parse entities
+                    entities = []
+                    em = re.search(r"<ENTITIES_JSON>(.*?)</ENTITIES_JSON>", output, flags=re.S | re.I)
+                    if em:
+                        ent_block = em.group(1).strip()
+                        try:
+                            entities = json.loads(ent_block)
+                        except Exception:
+                            jm = re.search(r"```(?:json)?(.*?)```", ent_block, flags=re.S | re.I)
+                            if jm:
+                                entities = json.loads(jm.group(1))
+                    
+                    if isinstance(entities, list):
+                        entities = entities[:20] if len(entities) > 20 else entities
+                    else:
+                        entities = []
+                    
+                    progress_bar.progress(100)
+                    
+                    st.session_state.summary_text = summary_md
+                    st.session_state.entities_list = entities
+                    
+                    status_text.empty()
+                    progress_bar.empty()
+                    
+                    st.markdown(f"""
+                        <div class="status-badge status-ready">
+                            <span class="glow-dot"></span>
+                            ✅ Analysis Complete | Provider: {provider} | ~{usage.get('total_tokens', 0)} tokens
+                        </div>
+                    """, unsafe_allow_html=True)
+                    st.balloons()
+                    
+                except Exception as e:
+                    progress_bar.empty()
+                    status_text.empty()
+                    st.error(f"❌ Error: {e}")
+        
+        # Display results
+        if st.session_state.summary_text:
+            st.markdown("---")
+            st.markdown("### 📘 Generated Summary")
+            with st.expander("📖 View Summary", expanded=True):
+                highlighted_summary = highlight_keywords_md(
+                    st.session_state.summary_text, 
+                    st.session_state.keywords_list, 
+                    st.session_state.keywords_color
+                )
+                st.markdown(highlighted_summary, unsafe_allow_html=True)
+        
+        if st.session_state.entities_list:
+            st.markdown("### 🧩 Extracted Entities (20)")
+            df_ent = pd.DataFrame(st.session_state.entities_list)
+            for c in ["entity", "type", "context", "evidence"]:
+                if c not in df_ent.columns:
+                    df_ent[c] = ""
+            
+            st.dataframe(
+                df_ent[["entity", "type", "context", "evidence"]], 
+                use_container_width=True, 
+                height=400
+            )
+            
+            # Entity type distribution
+            if "type" in df_ent.columns:
+                st.markdown("#### 📊 Entity Type Distribution")
+                type_counts = df_ent["type"].value_counts()
+                fig_entities = px.pie(
+                    values=type_counts.values, 
+                    names=type_counts.index,
+                    title="Entity Types",
+                    color_discrete_sequence=px.colors.sequential.Viridis
+                )
+                fig_entities.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)'
+                )
+                st.plotly_chart(fig_entities, use_container_width=True)
+            
+            st.markdown("### 🔗 Word Co-occurrence Graph")
+            nodes, edges = build_word_graph(st.session_state.summary_text, top_n=30, window=2)
+            plot_word_graph(nodes, edges, ANIMAL_THEMES[st.session_state.theme]["accent"])
+        
+        # Proceed to Agent Analysis button
+        st.markdown("---")
+        st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+        st.markdown("### 🤖 Ready for Agent Analysis")
+        
+        col_info, col_proceed = st.columns([2, 1])
+        
+        with col_info:
+            analysis_ready = bool(st.session_state.summary_text and st.session_state.entities_list)
+            if analysis_ready:
+                st.markdown("""
+                    ✅ Summary generated  
+                    ✅ Entities extracted  
+                    ✅ Ready for multi-agent analysis
+                """)
+            else:
+                st.warning("⚠️ Please run summary & entity extraction first")
+        
+        with col_proceed:
+            if analysis_ready:
+                st.markdown(f"""
+                    <div class="status-badge status-ready" style="animation: pulse 1.5s infinite;">
+                        <span class="glow-dot"></span>
+                        Analysis Ready
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button(f"🚀 {t['proceed_analysis']}", 
+                           key="proceed_analysis", 
+                           use_container_width=True, 
+                           type="primary"):
+                    # Set first agent input
+                    if st.session_state.agent_outputs:
+                        st.session_state.agent_outputs[0]["input"] = st.session_state.summary_text
+                    st.success("✅ Proceeding to Agent Analysis! Switching to Execute tab...")
+                    time.sleep(1)
+                    st.rerun()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
 
