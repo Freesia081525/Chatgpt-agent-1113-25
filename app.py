@@ -2584,6 +2584,8 @@ with tab3:
 
 # ==================== TAB 5: EXECUTE ANALYSIS - IMPROVED ====================
 # Replace the entire "with tab5:" section with this code
+# ==================== TAB 5: EXECUTE ANALYSIS - IMPROVED ====================
+# Replace the entire "with tab5:" section with this code
 
 with tab5:
     st.markdown('<div class="premium-card">', unsafe_allow_html=True)
@@ -3158,6 +3160,606 @@ with tab6:
             else:
                 st.warning("⚠️ Please paste some content first")
     
+    # ========== SECTION 2: TRANSFORMED CONTENT ==========
+    if st.session_state.note_transformed:
+        st.markdown("---")
+        st.markdown("### ✨ Step 2: Review & Edit Transformed Content")
+        
+        tab_edit, tab_preview = st.tabs(["✏️ Edit Markdown", "👁️ Preview with Highlights"])
+        
+        with tab_edit:
+            st.session_state.note_transformed = st.text_area(
+                "Edit the transformed markdown",
+                value=st.session_state.note_transformed,
+                height=400,
+                key="note_transformed_editor"
+            )
+            
+            col_edit1, col_edit2, col_edit3 = st.columns(3)
+            with col_edit1:
+                if st.button("💾 Save Changes", use_container_width=True):
+                    st.success("✅ Changes saved!")
+            with col_edit2:
+                if st.button("🗑️ Clear Content", use_container_width=True):
+                    st.session_state.note_transformed = ""
+                    st.session_state.note_content = ""
+                    st.rerun()
+            with col_edit3:
+                st.download_button(
+                    "📥 Export Markdown",
+                    data=st.session_state.note_transformed,
+                    file_name=f"note_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+        
+        with tab_preview:
+            if st.button("🎨 Generate Preview", use_container_width=True, type="primary"):
+                with st.spinner("Rendering preview..."):
+                    highlighted = highlight_keywords_md(
+                        st.session_state.note_transformed,
+                        st.session_state.note_keywords,
+                        st.session_state.note_color
+                    )
+                    st.markdown(highlighted, unsafe_allow_html=True)
+            else:
+                st.info("👆 Click 'Generate Preview' to see highlighted content")
+        
+        # ========== SECTION 3: AI ANALYSIS ==========
+        st.markdown("---")
+        st.markdown("### 🧠 Step 3: AI-Powered Analysis")
+        
+        col_model, col_analyze = st.columns([2, 1])
+        
+        with col_model:
+            analysis_model = st.selectbox(
+                "Select AI Model for Analysis",
+                ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gpt-4o-mini", 
+                 "gpt-4.1-mini", "gpt-5-nano", "grok-4-fast-reasoning", "grok-3-mini"],
+                key="note_analysis_model"
+            )
+            st.caption("💡 Tip: Flash models are faster, GPT models are more detailed")
+        
+        with col_analyze:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🚀 Generate Summary & Entities", use_container_width=True, type="primary"):
+                if st.session_state.note_transformed.strip():
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text("🔄 Preparing analysis...")
+                    progress_bar.progress(10)
+                    
+                    with st.spinner("🤖 AI is analyzing your content..."):
+                        messages = [
+                            {"role": "system", "content": SUMMARY_AND_ENTITIES_PROMPT},
+                            {"role": "user", "content": st.session_state.note_transformed}
+                        ]
+                        params = {"temperature": 0.3, "top_p": 0.95, "max_tokens": 2000}
+                        
+                        status_text.text("🧠 Generating summary and extracting entities...")
+                        progress_bar.progress(40)
+                        
+                        try:
+                            output, usage, provider = router.generate_text(analysis_model, messages, params)
+                            
+                            progress_bar.progress(70)
+                            status_text.text("📊 Parsing results...")
+                            
+                            # Parse summary
+                            summary_md = ""
+                            sm = re.search(r"<SUMMARY_MD>(.*?)</SUMMARY_MD>", output, flags=re.S | re.I)
+                            if sm:
+                                summary_md = sm.group(1).strip()
+                            else:
+                                summary_md = output.strip()[:3000]
+                            
+                            # Parse entities
+                            entities = []
+                            em = re.search(r"<ENTITIES_JSON>(.*?)</ENTITIES_JSON>", output, flags=re.S | re.I)
+                            if em:
+                                ent_block = em.group(1).strip()
+                                try:
+                                    entities = json.loads(ent_block)
+                                except Exception:
+                                    jm = re.search(r"```(?:json)?(.*?)```", ent_block, flags=re.S | re.I)
+                                    if jm:
+                                        entities = json.loads(jm.group(1))
+                            
+                            if isinstance(entities, list):
+                                entities = entities[:20] if len(entities) > 20 else entities
+                            else:
+                                entities = []
+                            
+                            progress_bar.progress(100)
+                            
+                            st.session_state.note_summary = summary_md
+                            st.session_state.note_entities = entities
+                            
+                            status_text.empty()
+                            progress_bar.empty()
+                            
+                            st.markdown(f"""
+                                <div class="status-badge status-ready">
+                                    <span class="glow-dot"></span>
+                                    ✅ Analysis Complete | Provider: {provider} | ~{usage.get('total_tokens', 0)} tokens
+                                </div>
+                            """, unsafe_allow_html=True)
+                            st.balloons()
+                            st.rerun()
+                            
+                        except Exception as e:
+                            progress_bar.empty()
+                            status_text.empty()
+                            st.error(f"❌ Analysis error: {e}")
+                else:
+                    st.warning("⚠️ Please transform your content first (Step 1)")
+        
+        # ========== SECTION 4: RESULTS DISPLAY ==========
+        if st.session_state.note_summary or st.session_state.note_entities:
+            st.markdown("---")
+            st.markdown("### 📊 Step 4: Analysis Results")
+            
+            # Display summary
+            if st.session_state.note_summary:
+                with st.expander("📘 Comprehensive Summary", expanded=True):
+                    highlighted_summary = highlight_keywords_md(
+                        st.session_state.note_summary,
+                        st.session_state.note_keywords,
+                        st.session_state.note_color
+                    )
+                    st.markdown(highlighted_summary, unsafe_allow_html=True)
+                    
+                    col_sum1, col_sum2 = st.columns([3, 1])
+                    with col_sum2:
+                        st.download_button(
+                            "📥 Export Summary",
+                            data=st.session_state.note_summary,
+                            file_name=f"summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                            mime="text/markdown",
+                            use_container_width=True,
+                            key="download_note_summary"
+                        )
+            
+            # Display entities
+            if st.session_state.note_entities:
+                st.markdown("#### 🧩 Extracted Entities (20)")
+                
+                df_note_entities = pd.DataFrame(st.session_state.note_entities)
+                
+                # Ensure required columns
+                for c in ["entity", "type", "context", "evidence"]:
+                    if c not in df_note_entities.columns:
+                        df_note_entities[c] = ""
+                
+                # Entity statistics
+                col_ent1, col_ent2, col_ent3 = st.columns(3)
+                with col_ent1:
+                    st.metric("Total Entities", len(df_note_entities))
+                with col_ent2:
+                    if "type" in df_note_entities.columns:
+                        st.metric("Unique Types", df_note_entities["type"].nunique())
+                with col_ent3:
+                    st.metric("Analysis Model", analysis_model.split("-")[0].upper())
+                
+                # Display table
+                st.dataframe(
+                    df_note_entities[["entity", "type", "context", "evidence"]],
+                    use_container_width=True,
+                    height=400
+                )
+                
+                # Entity type distribution
+                if "type" in df_note_entities.columns and not df_note_entities.empty:
+                    st.markdown("##### 📊 Entity Type Distribution")
+                    
+                    type_counts = df_note_entities["type"].value_counts()
+                    
+                    col_chart1, col_chart2 = st.columns(2)
+                    
+                    with col_chart1:
+                        fig_pie = px.pie(
+                            values=type_counts.values,
+                            names=type_counts.index,
+                            title="Entity Types",
+                            color_discrete_sequence=px.colors.sequential.Viridis
+                        )
+                        fig_pie.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)'
+                        )
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    
+                    with col_chart2:
+                        fig_bar = px.bar(
+                            x=type_counts.index,
+                            y=type_counts.values,
+                            title="Entity Type Counts",
+                            labels={"x": "Type", "y": "Count"},
+                            color=type_counts.values,
+                            color_continuous_scale="Plasma"
+                        )
+                        fig_bar.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            showlegend=False
+                        )
+                        st.plotly_chart(fig_bar, use_container_width=True)
+                
+                # Export entities
+                col_exp1, col_exp2 = st.columns(2)
+                with col_exp1:
+                    st.download_button(
+                        "📥 Export Entities (JSON)",
+                        data=json.dumps(st.session_state.note_entities, ensure_ascii=False, indent=2),
+                        file_name=f"entities_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key="download_entities_json"
+                    )
+                with col_exp2:
+                    st.download_button(
+                        "📥 Export Entities (CSV)",
+                        data=df_note_entities.to_csv(index=False),
+                        file_name=f"entities_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="download_entities_csv"
+                    )
+            
+            # ========== SECTION 5: WORD GRAPH ==========
+            if st.session_state.note_summary:
+                st.markdown("---")
+                st.markdown("### 🔗 Word Co-occurrence Graph")
+                
+                col_graph_settings, col_graph_display = st.columns([1, 3])
+                
+                with col_graph_settings:
+                    st.markdown("#### ⚙️ Graph Settings")
+                    
+                    top_n_words = st.slider(
+                        "Number of words",
+                        min_value=10,
+                        max_value=50,
+                        value=30,
+                        step=5,
+                        key="note_graph_top_n"
+                    )
+                    
+                    window_size = st.slider(
+                        "Co-occurrence window",
+                        min_value=1,
+                        max_value=5,
+                        value=2,
+                        step=1,
+                        key="note_graph_window",
+                        help="Number of words to look ahead for connections"
+                    )
+                    
+                    if st.button("🔄 Generate Graph", use_container_width=True, type="primary"):
+                        with st.spinner("Building word graph..."):
+                            nodes, edges = build_word_graph(
+                                st.session_state.note_summary,
+                                top_n=top_n_words,
+                                window=window_size
+                            )
+                            
+                            if not nodes.empty and not edges.empty:
+                                st.session_state.note_graph_nodes = nodes
+                                st.session_state.note_graph_edges = edges
+                                st.success("✅ Graph generated!")
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ Not enough data to generate graph")
+                
+                with col_graph_display:
+                    if "note_graph_nodes" in st.session_state and "note_graph_edges" in st.session_state:
+                        plot_word_graph(
+                            st.session_state.note_graph_nodes,
+                            st.session_state.note_graph_edges,
+                            ANIMAL_THEMES[st.session_state.theme]["accent"]
+                        )
+                        
+                        # Show top words table
+                        with st.expander("📊 Top Words Data", expanded=False):
+                            st.dataframe(
+                                st.session_state.note_graph_nodes.sort_values("count", ascending=False),
+                                use_container_width=True
+                            )
+                    else:
+                        st.info("👈 Configure settings and click 'Generate Graph' to visualize word relationships")
+        
+        # ========== SECTION 6: COMPREHENSIVE EXPORT ==========
+        if st.session_state.note_summary or st.session_state.note_entities:
+            st.markdown("---")
+            st.markdown("### 💾 Complete Export Package")
+            
+            col_export1, col_export2, col_export3 = st.columns(3)
+            
+            with col_export1:
+                # Complete markdown report
+                complete_report = f"""# Note Analysis Report
+
+**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**Theme:** {st.session_state.theme}
+**Keywords:** {', '.join(st.session_state.note_keywords)}
+
+---
+
+## Original Content
+
+{st.session_state.note_content[:500]}{"..." if len(st.session_state.note_content) > 500 else ""}
+
+---
+
+## Transformed Markdown
+
+{st.session_state.note_transformed}
+
+---
+
+## AI-Generated Summary
+
+{st.session_state.note_summary}
+
+---
+
+## Extracted Entities ({len(st.session_state.note_entities)})
+
+"""
+                if st.session_state.note_entities:
+                    df_temp = pd.DataFrame(st.session_state.note_entities)
+                    for c in ["entity", "type", "context", "evidence"]:
+                        if c not in df_temp.columns:
+                            df_temp[c] = ""
+                    try:
+                        complete_report += df_temp[["entity", "type", "context"]].to_markdown(index=False)
+                    except:
+                        complete_report += str(st.session_state.note_entities)
+                
+                complete_report += f"""
+
+---
+
+## Statistics
+
+- Original Characters: {len(st.session_state.note_content):,}
+- Transformed Characters: {len(st.session_state.note_transformed):,}
+- Summary Characters: {len(st.session_state.note_summary):,}
+- Entities Extracted: {len(st.session_state.note_entities)}
+- Keywords Used: {len(st.session_state.note_keywords)}
+
+---
+
+*Report generated by TFDA Intelligent Note Keeper*
+"""
+                
+                st.download_button(
+                    "📄 Complete Report (MD)",
+                    data=complete_report,
+                    file_name=f"complete_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+            
+            with col_export2:
+                # JSON package
+                json_package = {
+                    "metadata": {
+                        "timestamp": datetime.now().isoformat(),
+                        "theme": st.session_state.theme,
+                        "keywords": st.session_state.note_keywords,
+                        "keyword_color": st.session_state.note_color,
+                        "analysis_model": analysis_model
+                    },
+                    "content": {
+                        "original": st.session_state.note_content,
+                        "transformed": st.session_state.note_transformed,
+                        "summary": st.session_state.note_summary
+                    },
+                    "entities": st.session_state.note_entities,
+                    "statistics": {
+                        "original_chars": len(st.session_state.note_content),
+                        "transformed_chars": len(st.session_state.note_transformed),
+                        "summary_chars": len(st.session_state.note_summary),
+                        "entities_count": len(st.session_state.note_entities),
+                        "keywords_count": len(st.session_state.note_keywords)
+                    }
+                }
+                
+                st.download_button(
+                    "📦 Data Package (JSON)",
+                    data=json.dumps(json_package, ensure_ascii=False, indent=2),
+                    file_name=f"note_package_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+            
+            with col_export3:
+                # HTML export with styling
+                html_export = f"""<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Note Analysis Report</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }}
+        .container {{
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }}
+        h1 {{ color: {ANIMAL_THEMES[st.session_state.theme]['accent']}; border-bottom: 3px solid {ANIMAL_THEMES[st.session_state.theme]['primary']}; padding-bottom: 10px; }}
+        h2 {{ color: {ANIMAL_THEMES[st.session_state.theme]['primary']}; margin-top: 30px; }}
+        .keyword {{ color: {st.session_state.note_color}; font-weight: bold; }}
+        .meta {{ background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+        th {{ background: {ANIMAL_THEMES[st.session_state.theme]['primary']}40; font-weight: bold; }}
+        .summary {{ background: {ANIMAL_THEMES[st.session_state.theme]['primary']}20; padding: 20px; border-radius: 10px; margin: 20px 0; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📝 Note Analysis Report</h1>
+        
+        <div class="meta">
+            <strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
+            <strong>Theme:</strong> {st.session_state.theme}<br>
+            <strong>Keywords:</strong> {', '.join(st.session_state.note_keywords)}
+        </div>
+        
+        <h2>Summary</h2>
+        <div class="summary">
+            {st.session_state.note_summary}
+        </div>
+        
+        <h2>Extracted Entities</h2>
+        <table>
+            <tr>
+                <th>Entity</th>
+                <th>Type</th>
+                <th>Context</th>
+            </tr>
+"""
+                
+                for entity in st.session_state.note_entities:
+                    html_export += f"""
+            <tr>
+                <td>{entity.get('entity', '')}</td>
+                <td>{entity.get('type', '')}</td>
+                <td>{entity.get('context', '')}</td>
+            </tr>
+"""
+                
+                html_export += """
+        </table>
+    </div>
+</body>
+</html>
+"""
+                
+                st.download_button(
+                    "🌐 HTML Report",
+                    data=html_export,
+                    file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                    mime="text/html",
+                    use_container_width=True
+                )
+    
+    # ========== QUICK START GUIDE ==========
+    if not st.session_state.note_content:
+        st.markdown("---")
+        st.markdown("### 🚀 Quick Start Guide")
+        
+        col_guide1, col_guide2, col_guide3, col_guide4 = st.columns(4)
+        
+        with col_guide1:
+            st.markdown("""
+                <div style="text-align: center; padding: 20px; background: rgba(100,150,255,0.1); border-radius: 12px;">
+                    <div style="font-size: 2rem;">📋</div>
+                    <strong>Step 1</strong><br>
+                    Paste Content
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_guide2:
+            st.markdown("""
+                <div style="text-align: center; padding: 20px; background: rgba(100,150,255,0.1); border-radius: 12px;">
+                    <div style="font-size: 2rem;">🎨</div>
+                    <strong>Step 2</strong><br>
+                    Transform & Edit
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_guide3:
+            st.markdown("""
+                <div style="text-align: center; padding: 20px; background: rgba(100,150,255,0.1); border-radius: 12px;">
+                    <div style="font-size: 2rem;">🧠</div>
+                    <strong>Step 3</strong><br>
+                    AI Analysis
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_guide4:
+            st.markdown("""
+                <div style="text-align: center; padding: 20px; background: rgba(100,150,255,0.1); border-radius: 12px;">
+                    <div style="font-size: 2rem;">📊</div>
+                    <strong>Step 4</strong><br>
+                    View & Export
+                </div>
+            """, unsafe_allow_html=True)
+        
+        # Sample content buttons
+        st.markdown("#### 💡 Or Try These Samples")
+        
+        col_sample1, col_sample2, col_sample3 = st.columns(3)
+        
+        with col_sample1:
+            if st.button("📄 Sample Text", use_container_width=True):
+                st.session_state.note_content = """藥品安全性評估報告
+
+本報告針對新型降血壓藥物進行全面安全性評估。研究顯示該藥物對輕度至中度高血壓患者具有顯著療效。
+
+主要發現：
+- 有效降低收縮壓 15-20 mmHg
+- 不良反應發生率低於 5%
+- 禁忌症包括嚴重肝腎功能不全
+- 建議起始劑量為每日 10mg
+
+風險評估結果顯示該藥品具有良好的安全性特徵。建議在醫師監督下使用。"""
+                st.rerun()
+        
+        with col_sample2:
+            if st.button("📊 Sample JSON", use_container_width=True):
+                st.session_state.note_content = """{
+  "drug_name": "降壓靈",
+  "active_ingredient": "Compound X",
+  "indications": ["高血壓", "心血管保護"],
+  "contraindications": ["肝功能不全", "懷孕"],
+  "adverse_reactions": [
+    {"reaction": "頭暈", "frequency": "3%"},
+    {"reaction": "噁心", "frequency": "2%"}
+  ],
+  "dosage": {
+    "adult": "10-20mg daily",
+    "elderly": "5-10mg daily"
+  }
+}"""
+                st.rerun()
+        
+        with col_sample3:
+            if st.button("📝 Sample Markdown", use_container_width=True):
+                st.session_state.note_content = """# 臨床試驗摘要
+
+## 試驗設計
+- **Phase**: III
+- **受試者數**: 500人
+- **試驗期間**: 12週
+
+## 主要終點
+降低收縮壓 ≥ 10 mmHg
+
+## 結果
+試驗達到主要終點，**p < 0.001**
+
+## 安全性
+未觀察到嚴重不良事件
+
+## 結論
+該藥品對高血壓患者安全有效"""
+                st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # ========== SECTION 2: TRANSFORMED CONTENT ==========
 
 # Continue with remaining tabs...
