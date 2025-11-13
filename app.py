@@ -2726,6 +2726,585 @@ with tab3:
     
     st.markdown('</div>', unsafe_allow_html=True)
 
+
+# ==================== TAB 5: EXECUTE ANALYSIS - IMPROVED ====================
+# Replace the entire "with tab5:" section with this code
+
+with tab5:
+    st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+    st.subheader(f"{theme_icon} {t['execute_tab']}")
+    
+    # Check readiness
+    base_input_for_agents = st.session_state.summary_text or st.session_state.combine_text or (
+        (st.session_state.docA_ocr_text or st.session_state.docA_text or "") + "\n\n" + 
+        (st.session_state.docB_ocr_text or st.session_state.docB_text or "")
+    )
+    
+    if not base_input_for_agents.strip():
+        st.warning("⚠️ No content available for analysis. Please complete previous steps.")
+        col_nav1, col_nav2, col_nav3 = st.columns(3)
+        with col_nav1:
+            if st.button("↩️ Upload Documents", key="goto_tab1_from_tab5"):
+                st.info("Please click on the 'Upload & OCR' tab")
+        with col_nav2:
+            if st.button("↩️ Preview & Edit", key="goto_tab2_from_tab5"):
+                st.info("Please click on the 'Preview & Edit' tab")
+        with col_nav3:
+            if st.button("↩️ Combine & Summarize", key="goto_tab3_from_tab5"):
+                st.info("Please click on the 'Combine & Summarize' tab")
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        # Initialize outputs if needed
+        if len(st.session_state.agent_outputs) < len(st.session_state.agents_config):
+            st.session_state.agent_outputs = [
+                {"input": "", "output": "", "time": 0.0, "tokens": 0, "provider": "", "model": ""}
+                for _ in st.session_state.agents_config
+            ]
+        
+        # Set first agent input if empty
+        if not st.session_state.agent_outputs[0]["input"]:
+            st.session_state.agent_outputs[0]["input"] = base_input_for_agents
+        
+        # ========== EXECUTION OVERVIEW ==========
+        st.markdown("### 🎯 Execution Overview")
+        
+        col_overview1, col_overview2, col_overview3, col_overview4 = st.columns(4)
+        
+        executed_count = sum(1 for output in st.session_state.agent_outputs[:st.session_state.selected_agent_count] 
+                            if output.get("output"))
+        
+        with col_overview1:
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{st.session_state.selected_agent_count}</div>
+                    <div class="metric-label">Agents Selected</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_overview2:
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{executed_count}</div>
+                    <div class="metric-label">Executed</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_overview3:
+            total_time = sum(output.get("time", 0) for output in st.session_state.agent_outputs)
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{total_time:.1f}s</div>
+                    <div class="metric-label">Total Time</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        with col_overview4:
+            total_tokens = sum(output.get("tokens", 0) for output in st.session_state.agent_outputs)
+            st.markdown(f"""
+                <div class="metric-showcase">
+                    <div class="metric-value">{total_tokens:,}</div>
+                    <div class="metric-label">Total Tokens</div>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        # Progress bar
+        progress_pct = int((executed_count / st.session_state.selected_agent_count) * 100) if st.session_state.selected_agent_count > 0 else 0
+        st.markdown(f"""
+            <div style="margin: 1rem 0;">
+                <div style="text-align: center; margin-bottom: 0.5rem;">
+                    <strong>Pipeline Progress: {progress_pct}%</strong>
+                </div>
+                <div style="background: rgba(255,255,255,0.2); border-radius: 10px; height: 20px; overflow: hidden;">
+                    <div style="background: linear-gradient(90deg, {ANIMAL_THEMES[st.session_state.theme]['primary']}, {ANIMAL_THEMES[st.session_state.theme]['accent']}); height: 100%; width: {progress_pct}%; transition: width 0.5s ease;"></div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # ========== BULK ACTIONS ==========
+        st.markdown("### ⚡ Bulk Actions")
+        
+        col_bulk1, col_bulk2, col_bulk3, col_bulk4 = st.columns(4)
+        
+        with col_bulk1:
+            if st.button("🔄 Reset All Inputs", use_container_width=True):
+                st.session_state.agent_outputs[0]["input"] = base_input_for_agents
+                for i in range(1, len(st.session_state.agent_outputs)):
+                    st.session_state.agent_outputs[i]["input"] = ""
+                st.success("✅ Inputs reset!")
+                st.rerun()
+        
+        with col_bulk2:
+            if st.button("🗑️ Clear All Outputs", use_container_width=True):
+                for output in st.session_state.agent_outputs:
+                    output["output"] = ""
+                    output["time"] = 0.0
+                    output["tokens"] = 0
+                st.warning("⚠️ All outputs cleared!")
+                st.rerun()
+        
+        with col_bulk3:
+            if st.button("▶️ Execute All Sequentially", use_container_width=True, type="primary"):
+                st.info("🚀 Starting sequential execution...")
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                for i in range(st.session_state.selected_agent_count):
+                    agent = st.session_state.agents_config[i]
+                    status_text.text(f"Executing Agent {i+1}/{st.session_state.selected_agent_count}: {agent.get('name', '')}")
+                    
+                    messages = [
+                        {"role": "system", "content": st.session_state.global_system_prompt},
+                        {"role": "system", "content": agent.get("system_prompt", "")},
+                        {"role": "user", "content": f"{agent.get('user_prompt', '')}\n\n{st.session_state.agent_outputs[i]['input']}"}
+                    ]
+                    params = {
+                        "temperature": float(agent.get("temperature", 0.3)),
+                        "top_p": float(agent.get("top_p", 0.95)),
+                        "max_tokens": int(agent.get("max_tokens", 1000))
+                    }
+                    
+                    try:
+                        t0 = time.time()
+                        output, usage, provider = router.generate_text(agent.get("model", "gpt-4o-mini"), messages, params)
+                        elapsed = time.time() - t0
+                        
+                        st.session_state.agent_outputs[i].update({
+                            "output": output,
+                            "time": elapsed,
+                            "tokens": usage.get("total_tokens", 0),
+                            "provider": provider,
+                            "model": agent.get("model", "")
+                        })
+                        
+                        st.session_state.run_metrics.append({
+                            "timestamp": datetime.now().isoformat(),
+                            "agent": agent.get("name", ""),
+                            "latency": elapsed,
+                            "tokens": usage.get("total_tokens", 0),
+                            "provider": provider
+                        })
+                        
+                        # Auto-pass to next agent
+                        if i < st.session_state.selected_agent_count - 1:
+                            st.session_state.agent_outputs[i+1]["input"] = output
+                        
+                    except Exception as e:
+                        st.error(f"❌ Agent {i+1} error: {str(e)}")
+                    
+                    progress_bar.progress((i + 1) / st.session_state.selected_agent_count)
+                
+                status_text.empty()
+                progress_bar.empty()
+                st.success("✅ All agents executed!")
+                st.balloons()
+                st.rerun()
+        
+        with col_bulk4:
+            if executed_count > 0:
+                # Compile all outputs
+                compiled_report = f"# Agent Analysis Report\n\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                for i in range(st.session_state.selected_agent_count):
+                    if st.session_state.agent_outputs[i].get("output"):
+                        agent = st.session_state.agents_config[i]
+                        compiled_report += f"## Agent {i+1}: {agent.get('name', '')}\n\n"
+                        compiled_report += f"{st.session_state.agent_outputs[i]['output']}\n\n---\n\n"
+                
+                st.download_button(
+                    "📥 Download All",
+                    data=compiled_report,
+                    file_name=f"agent_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+        
+        st.markdown("---")
+        
+        # ========== AGENT EXECUTION ==========
+        st.markdown("### 🤖 Agent Pipeline")
+        
+        for i in range(st.session_state.selected_agent_count):
+            agent = st.session_state.agents_config[i]
+            
+            st.markdown(f'<div class="agent-card">', unsafe_allow_html=True)
+            
+            # Agent header
+            col_header1, col_header2 = st.columns([3, 1])
+            with col_header1:
+                st.markdown(f"#### 🤖 Agent {i+1}: {agent.get('name', 'Unnamed')}")
+                st.caption(f"📝 {agent.get('description', 'No description')}")
+            with col_header2:
+                if st.session_state.agent_outputs[i].get("output"):
+                    st.markdown("""
+                        <div class="status-badge status-ready" style="font-size: 0.85rem;">
+                            <span class="glow-dot"></span>
+                            Completed
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                        <div class="status-badge status-warning" style="font-size: 0.85rem;">
+                            <span class="glow-dot"></span>
+                            Pending
+                        </div>
+                    """, unsafe_allow_html=True)
+            
+            # Tabs for each agent
+            agent_tabs = st.tabs(["📥 Input", "⚙️ Settings", "📤 Output", "📊 Metrics"])
+            
+            with agent_tabs[0]:  # Input
+                st.session_state.agent_outputs[i]["input"] = st.text_area(
+                    f"Agent {i+1} Input",
+                    value=st.session_state.agent_outputs[i]["input"],
+                    height=200,
+                    key=f"agent_input_{i}",
+                    label_visibility="collapsed"
+                )
+                
+                col_input1, col_input2 = st.columns(2)
+                with col_input1:
+                    if i > 0 and st.button(f"⬅️ Load from Agent {i}", key=f"load_prev_{i}"):
+                        st.session_state.agent_outputs[i]["input"] = st.session_state.agent_outputs[i-1]["output"]
+                        st.success(f"✅ Loaded from Agent {i}")
+                        st.rerun()
+                with col_input2:
+                    if st.button(f"🔄 Reset to Base", key=f"reset_base_{i}"):
+                        st.session_state.agent_outputs[i]["input"] = base_input_for_agents if i == 0 else ""
+                        st.success("✅ Reset!")
+                        st.rerun()
+            
+            with agent_tabs[1]:  # Settings
+                col_set1, col_set2 = st.columns(2)
+                with col_set1:
+                    st.markdown(f"**Model:** {agent.get('model', 'N/A')}")
+                    st.markdown(f"**Temperature:** {agent.get('temperature', 0.3)}")
+                with col_set2:
+                    st.markdown(f"**Top P:** {agent.get('top_p', 0.95)}")
+                    st.markdown(f"**Max Tokens:** {agent.get('max_tokens', 1000)}")
+                
+                with st.expander("📋 View Prompts"):
+                    st.markdown("**System Prompt:**")
+                    st.code(agent.get("system_prompt", ""), language="text")
+                    st.markdown("**User Prompt:**")
+                    st.code(agent.get("user_prompt", ""), language="text")
+            
+            with agent_tabs[2]:  # Output
+                if st.button(f"▶️ Execute Agent {i+1}", key=f"execute_{i}", type="primary"):
+                    with st.spinner(f"🔄 Executing Agent {i+1}..."):
+                        messages = [
+                            {"role": "system", "content": st.session_state.global_system_prompt},
+                            {"role": "system", "content": agent.get("system_prompt", "")},
+                            {"role": "user", "content": f"{agent.get('user_prompt', '')}\n\n{st.session_state.agent_outputs[i]['input']}"}
+                        ]
+                        params = {
+                            "temperature": float(agent.get("temperature", 0.3)),
+                            "top_p": float(agent.get("top_p", 0.95)),
+                            "max_tokens": int(agent.get("max_tokens", 1000))
+                        }
+                        
+                        try:
+                            t0 = time.time()
+                            output, usage, provider = router.generate_text(agent.get("model", "gpt-4o-mini"), messages, params)
+                            elapsed = time.time() - t0
+                            
+                            st.session_state.agent_outputs[i].update({
+                                "output": output,
+                                "time": elapsed,
+                                "tokens": usage.get("total_tokens", 0),
+                                "provider": provider,
+                                "model": agent.get("model", "")
+                            })
+                            
+                            st.session_state.run_metrics.append({
+                                "timestamp": datetime.now().isoformat(),
+                                "agent": agent.get("name", ""),
+                                "latency": elapsed,
+                                "tokens": usage.get("total_tokens", 0),
+                                "provider": provider
+                            })
+                            
+                            st.success(f"✅ Completed in {elapsed:.2f}s | {usage.get('total_tokens', 0)} tokens")
+                            st.balloons()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                
+                if st.session_state.agent_outputs[i].get("output"):
+                    st.text_area(
+                        "Output",
+                        value=st.session_state.agent_outputs[i]["output"],
+                        height=300,
+                        key=f"agent_output_{i}",
+                        label_visibility="collapsed"
+                    )
+                    
+                    col_out1, col_out2 = st.columns(2)
+                    with col_out1:
+                        if i < st.session_state.selected_agent_count - 1:
+                            if st.button(f"➡️ Pass to Agent {i+2}", key=f"pass_{i}"):
+                                st.session_state.agent_outputs[i+1]["input"] = st.session_state.agent_outputs[i]["output"]
+                                st.success(f"✅ Passed to Agent {i+2}")
+                                st.rerun()
+                    with col_out2:
+                        st.download_button(
+                            "📥 Export",
+                            data=st.session_state.agent_outputs[i]["output"],
+                            file_name=f"agent_{i+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain",
+                            key=f"download_{i}"
+                        )
+                else:
+                    st.info("No output yet. Click 'Execute' to run this agent.")
+            
+            with agent_tabs[3]:  # Metrics
+                if st.session_state.agent_outputs[i].get("output"):
+                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                    
+                    with col_m1:
+                        st.metric("Latency", f"{st.session_state.agent_outputs[i]['time']:.2f}s")
+                    with col_m2:
+                        st.metric("Tokens", f"{st.session_state.agent_outputs[i]['tokens']:,}")
+                    with col_m3:
+                        st.metric("Provider", st.session_state.agent_outputs[i]['provider'])
+                    with col_m4:
+                        chars = len(st.session_state.agent_outputs[i]['output'])
+                        st.metric("Output Chars", f"{chars:,}")
+                else:
+                    st.info("No metrics available yet.")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            if i < st.session_state.selected_agent_count - 1:
+                st.markdown("---")
+        
+        st.markdown("---")
+        
+        # ========== FINAL EXPORT ==========
+        if executed_count > 0:
+            st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+            st.markdown("### 💾 Export Complete Analysis")
+            
+            col_exp1, col_exp2, col_exp3 = st.columns(3)
+            
+            with col_exp1:
+                # JSON export
+                payload = {
+                    "timestamp": datetime.now().isoformat(),
+                    "theme": st.session_state.theme,
+                    "agents_executed": executed_count,
+                    "total_time": sum(o.get("time", 0) for o in st.session_state.agent_outputs),
+                    "total_tokens": sum(o.get("tokens", 0) for o in st.session_state.agent_outputs),
+                    "outputs": [
+                        {
+                            "agent": st.session_state.agents_config[i].get("name", ""),
+                            "output": st.session_state.agent_outputs[i].get("output", ""),
+                            "metrics": {
+                                "time": st.session_state.agent_outputs[i].get("time", 0),
+                                "tokens": st.session_state.agent_outputs[i].get("tokens", 0),
+                                "provider": st.session_state.agent_outputs[i].get("provider", "")
+                            }
+                        }
+                        for i in range(st.session_state.selected_agent_count)
+                        if st.session_state.agent_outputs[i].get("output")
+                    ]
+                }
+                
+                st.download_button(
+                    "📥 JSON",
+                    data=json.dumps(payload, ensure_ascii=False, indent=2),
+                    file_name=f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+            
+            with col_exp2:
+                # Markdown report
+                report = f"# Multi-Agent Analysis Report\n\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                report += f"**Theme:** {st.session_state.theme}\n\n"
+                report += f"**Agents Executed:** {executed_count}/{st.session_state.selected_agent_count}\n\n"
+                report += "---\n\n"
+                
+                for i in range(st.session_state.selected_agent_count):
+                    if st.session_state.agent_outputs[i].get("output"):
+                        agent = st.session_state.agents_config[i]
+                        report += f"## Agent {i+1}: {agent.get('name', '')}\n\n"
+                        report += f"**Description:** {agent.get('description', '')}\n\n"
+                        report += f"**Model:** {st.session_state.agent_outputs[i]['model']}\n\n"
+                        report += f"**Provider:** {st.session_state.agent_outputs[i]['provider']}\n\n"
+                        report += f"**Processing Time:** {st.session_state.agent_outputs[i]['time']:.2f}s\n\n"
+                        report += f"### Output\n\n{st.session_state.agent_outputs[i]['output']}\n\n"
+                        report += "---\n\n"
+                
+                st.download_button(
+                    "📄 Markdown",
+                    data=report,
+                    file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+            
+            with col_exp3:
+                # Session restore
+                if st.button("💾 Save Session State", use_container_width=True):
+                    session_data = {
+                        "agents_config": st.session_state.agents_config,
+                        "agent_outputs": st.session_state.agent_outputs,
+                        "selected_agent_count": st.session_state.selected_agent_count,
+                        "run_metrics": st.session_state.run_metrics
+                    }
+                    st.download_button(
+                        "📥 Download Session",
+                        data=json.dumps(session_data, ensure_ascii=False, indent=2),
+                        file_name=f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key="download_session"
+                    )
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ==================== TAB 6: NOTE KEEPER - COMPLETE REDESIGN ====================
+# Replace the entire "with tab6:" section (or whatever tab is currently Dashboard) with this code
+
+with tab6:
+    st.markdown('<div class="premium-card">', unsafe_allow_html=True)
+    st.subheader(f"{theme_icon} 📝 Intelligent Note Keeper & Analyzer")
+    
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, rgba(100,150,255,0.1), rgba(150,100,255,0.1)); 
+         padding: 1rem; border-radius: 12px; margin-bottom: 1rem;">
+        <p style="margin: 0; text-align: center;">
+            ✨ Paste any document (text, markdown, JSON) → AI transforms it to highlighted markdown → 
+            Generate summary & entities → Visualize with word graph
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Initialize note keeper state
+    if "note_content" not in st.session_state:
+        st.session_state.note_content = ""
+    if "note_transformed" not in st.session_state:
+        st.session_state.note_transformed = ""
+    if "note_keywords" not in st.session_state:
+        st.session_state.note_keywords = ["重要", "關鍵", "藥品", "風險", "注意"]
+    if "note_color" not in st.session_state:
+        st.session_state.note_color = "#FF7F50"  # Coral
+    if "note_summary" not in st.session_state:
+        st.session_state.note_summary = ""
+    if "note_entities" not in st.session_state:
+        st.session_state.note_entities = []
+    
+    # ========== SECTION 1: INPUT & TRANSFORM ==========
+    st.markdown("### 📋 Step 1: Input Document")
+    
+    col_input, col_settings = st.columns([2, 1])
+    
+    with col_input:
+        st.session_state.note_content = st.text_area(
+            "Paste your document here (text, markdown, JSON, etc.)",
+            value=st.session_state.note_content,
+            height=300,
+            placeholder="Paste your content here...\n\nSupports:\n- Plain text\n- Markdown\n- JSON\n- Any text format",
+            key="note_input_area"
+        )
+        
+        col_stats1, col_stats2, col_stats3 = st.columns(3)
+        with col_stats1:
+            st.metric("Characters", f"{len(st.session_state.note_content):,}")
+        with col_stats2:
+            st.metric("Words", f"{len(st.session_state.note_content.split()):,}")
+        with col_stats3:
+            st.metric("Lines", f"{len(st.session_state.note_content.splitlines()):,}")
+    
+    with col_settings:
+        st.markdown("#### 🎨 Highlighting Settings")
+        
+        st.session_state.note_color = st.color_picker(
+            "Keyword Color",
+            value=st.session_state.note_color,
+            key="note_color_picker"
+        )
+        
+        # Color preview
+        st.markdown(f"""
+            <div style="background: {st.session_state.note_color}; padding: 15px; 
+                 border-radius: 8px; text-align: center; color: white; 
+                 font-weight: bold; margin: 10px 0;">
+                Preview Color
+            </div>
+        """, unsafe_allow_html=True)
+        
+        keywords_str = st.text_input(
+            "Keywords (comma-separated)",
+            value=",".join(st.session_state.note_keywords),
+            key="note_keywords_input"
+        )
+        st.session_state.note_keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
+        
+        if st.session_state.note_keywords:
+            st.caption(f"✅ {len(st.session_state.note_keywords)} keywords configured")
+        
+        st.markdown("---")
+        
+        if st.button("🎨 Transform to Markdown", use_container_width=True, type="primary"):
+            if st.session_state.note_content.strip():
+                with st.spinner("🔄 Transforming..."):
+                    # Check if content is JSON
+                    try:
+                        json_obj = json.loads(st.session_state.note_content)
+                        # Convert JSON to readable markdown
+                        transformed = "# Document Content\n\n"
+                        transformed += "```json\n" + json.dumps(json_obj, ensure_ascii=False, indent=2) + "\n```\n\n"
+                        transformed += "## Formatted View\n\n"
+                        
+                        def json_to_md(obj, level=0):
+                            md = ""
+                            indent = "  " * level
+                            if isinstance(obj, dict):
+                                for key, value in obj.items():
+                                    if isinstance(value, (dict, list)):
+                                        md += f"{indent}- **{key}**:\n{json_to_md(value, level+1)}"
+                                    else:
+                                        md += f"{indent}- **{key}**: {value}\n"
+                            elif isinstance(obj, list):
+                                for item in obj:
+                                    md += json_to_md(item, level)
+                            else:
+                                md += f"{indent}- {obj}\n"
+                            return md
+                        
+                        transformed += json_to_md(json_obj)
+                        st.session_state.note_transformed = transformed
+                    except:
+                        # Treat as text/markdown
+                        lines = st.session_state.note_content.splitlines()
+                        transformed = ""
+                        
+                        for line in lines:
+                            # Add markdown formatting if not already present
+                            stripped = line.strip()
+                            if stripped and not stripped.startswith("#") and not stripped.startswith("-") and not stripped.startswith("*"):
+                                # Check if it looks like a heading
+                                if len(stripped) < 60 and not stripped.endswith(".") and not stripped.endswith(","):
+                                    transformed += f"## {stripped}\n\n"
+                                else:
+                                    transformed += f"{stripped}\n\n"
+                            else:
+                                transformed += f"{line}\n"
+                        
+                        st.session_state.note_transformed = transformed
+                    
+                    st.success("✅ Transformation complete!")
+                    st.rerun()
+            else:
+                st.warning("⚠️ Please paste some content first")
+    
+    # ========== SECTION 2: TRANSFORMED CONTENT ==========
+
 # Continue with remaining tabs...
 # (Due to length, I'll provide the complete code structure. Let me know if you need specific sections expanded)
 
